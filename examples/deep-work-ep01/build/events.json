@@ -1,0 +1,23 @@
+[
+  {"t": 1.0, "name": "tap"},
+  {"t": 3.8, "name": "thud_soft"},
+  {"t": 8.8, "name": "whoosh"},
+  {"t": 12.0, "name": "pop_low"},
+  {"t": 17.8, "name": "hit"},
+  {"t": 25.8, "name": "draw"},
+  {"t": 34.3, "name": "chime"},
+  {"t": 42.8, "name": "rise"},
+  {"t": 50.5, "name": "pop"},
+  {"t": 59.8, "name": "hit"},
+  {"t": 68.8, "name": "thud"},
+  {"t": 77.5, "name": "chime_soft"},
+  {"t": 86.2, "name": "whoosh"},
+  {"t": 94.5, "name": "tap"},
+  {"t": 103.0, "name": "chime"},
+  {"t": 112.5, "name": "pop_low"},
+  {"t": 121.5, "name": "coin"},
+  {"t": 131.0, "name": "thud"},
+  {"t": 140.5, "name": "chime_soft"},
+  {"t": 149.0, "name": "rise"},
+  {"t": 158.5, "name": "chime_end"}
+]
