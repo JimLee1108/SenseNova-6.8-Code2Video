@@ -1,102 +1,30 @@
 [
- {
-  "t": 1.045,
-  "name": "coin"
- },
- {
-  "t": 1.69,
-  "name": "coin"
- },
- {
-  "t": 2.335,
-  "name": "coin"
- },
- {
-  "t": 2.981,
-  "name": "coin"
- },
- {
-  "t": 3.626,
-  "name": "coin"
- },
- {
-  "t": 4.271,
-  "name": "coin"
- },
- {
-  "t": 4.916,
-  "name": "coin"
- },
- {
-  "t": 5.561,
-  "name": "coin"
- },
- {
-  "t": 6.206,
-  "name": "coin"
- },
- {
-  "t": 6.503,
-  "name": "whoosh"
- },
- {
-  "t": 7.003,
-  "name": "draw"
- },
- {
-  "t": 12.935,
-  "name": "thud"
- },
- {
-  "t": 14.85,
-  "name": "hit"
- },
- {
-  "t": 17.572,
-  "name": "chime_soft"
- },
- {
-  "t": 26.425,
-  "name": "pop"
- },
- {
-  "t": 26.794,
-  "name": "tap"
- },
- {
-  "t": 28.821,
-  "name": "tap"
- },
- {
-  "t": 34.542,
-  "name": "pop_low"
- },
- {
-  "t": 35.316,
-  "name": "pop_low"
- },
- {
-  "t": 37.252,
-  "name": "pop"
- },
- {
-  "t": 37.833,
-  "name": "pop"
- },
- {
-  "t": 39.314,
-  "name": "thud_soft"
- },
- {
-  "t": 41.128,
-  "name": "rise"
- },
- {
-  "t": 50.536,
-  "name": "chime"
- },
- {
-  "t": 53.903,
-  "name": "chime_end"
- }
+  {"t": 1.2, "name": "tap"},
+  {"t": 3.5, "name": "whoosh"},
+  {"t": 6.8, "name": "thud_soft"},
+  {"t": 10.5, "name": "draw"},
+  {"t": 15.2, "name": "hit"},
+  {"t": 19.8, "name": "chime_soft"},
+  {"t": 24.5, "name": "pop"},
+  {"t": 28.2, "name": "coin"},
+  {"t": 33.5, "name": "rise"},
+  {"t": 38.0, "name": "pop"},
+  {"t": 39.5, "name": "tap"},
+  {"t": 41.2, "name": "chime"},
+  {"t": 48.0, "name": "thud"},
+  {"t": 56.5, "name": "chime_soft"},
+  {"t": 63.8, "name": "chime"},
+  {"t": 70.0, "name": "whoosh"},
+  {"t": 78.5, "name": "thud"},
+  {"t": 86.2, "name": "coin"},
+  {"t": 93.0, "name": "hit"},
+  {"t": 100.5, "name": "rise"},
+  {"t": 108.0, "name": "pop"},
+  {"t": 116.5, "name": "chime"},
+  {"t": 124.0, "name": "whoosh"},
+  {"t": 133.5, "name": "thud"},
+  {"t": 142.0, "name": "coin"},
+  {"t": 146.5, "name": "chime_soft"},
+  {"t": 154.0, "name": "tap"},
+  {"t": 162.5, "name": "chime_end"}
 ]

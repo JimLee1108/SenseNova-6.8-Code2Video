@@ -1,19 +1,20 @@
-// 《纳瓦尔宝典》3Blue1Brown 暗黑荧光风格 (9:16, 1080x1920)
+// 《纳瓦尔宝典》3Blue1Brown 暗黑荧光风格 (9:16, 1080x1920) - 21 句完整版 (170s, 5100 帧)
 // High contrast, deep obsidian background, neon glowing lasers, spark particles, screen shake.
 import { createCanvas } from '@napi-rs/canvas';
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 
-const W = 1080, H = 1920, FPS = 30, DUR = 60, NFRAMES = DUR * FPS;
+const W = 1080, H = 1920, FPS = 30;
 const timeline = JSON.parse(fs.readFileSync('build/timeline.json', 'utf8'));
-const VO = JSON.parse(fs.readFileSync('build/vo/timing.json', 'utf8')).lines;
-const { START, LS, LE, B, K } = timeline;
+const NFRAMES = timeline.TOTAL_FRAMES || 5100;
+const DUR = timeline.DUR || 170;
+const LINES = timeline.LINES;
 
 // 3Blue1Brown Dark Glowing Palette
 const C = {
   bg: '#080B10',
   grid: 'rgba(88, 166, 255, 0.06)',
-  cardBg: 'rgba(18, 24, 38, 0.75)',
+  cardBg: 'rgba(18, 24, 38, 0.78)',
   cardBorder: 'rgba(88, 166, 255, 0.25)',
   white: '#FFFFFF',
   textMute: '#8B949E',
@@ -24,32 +25,40 @@ const C = {
   neonCyan: '#00D4FF',
   neonCyanCore: '#A8F2FF',
   neonGold: '#FFD166',
+  neonGoldCore: '#FFF1C2',
   neonGreen: '#06D6A0',
   neonGreenCore: '#A3FFE8',
+  neonPurple: '#B5179E',
+  neonPurpleCore: '#F72585',
 };
-const SERIF = '"Noto Serif CJK SC"', SANS = '"Noto Sans CJK SC"';
+const SERIF = '"Noto Serif CJK SC", "Source Han Serif CN", serif';
+const SANS = '"Noto Sans CJK SC", "Source Han Sans CN", sans-serif';
 
-// Easing
+// Easing helpers
 const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 const lerp = (a, b, u) => a + (b - a) * u;
 const ss = u => { u = clamp(u); return u * u * (3 - 2 * u); };
 const eo = u => 1 - Math.pow(1 - clamp(u), 3);
 const eio = u => { u = clamp(u); return u < .5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2; };
 const ramp = (t, a, d) => clamp((t - a) / d);
-const win = (t, a, b, fi = .5, fo = .5) => Math.min(ss((t - a) / fi), 1 - ss((t - (b - fo)) / fo));
-const back = u => { u = clamp(u); const c = 1.70158; return 1 + (c + 1) * Math.pow(u - 1, 3) + c * Math.pow(u - 1, 2); };
-function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
-// Background with dark 3B1B grid and deep vignette
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// Pre-render static background with dark 3B1B grid and vignette
 function makeBackground() {
   const c = createCanvas(W, H), g = c.getContext('2d');
   g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
-  // Grid lines
   g.strokeStyle = C.grid; g.lineWidth = 1;
   const step = 80;
   for (let x = 0; x < W; x += step) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
   for (let y = 0; y < H; y += step) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
-  // Radial glow / vignette
   const rg = g.createRadialGradient(W / 2, H * 0.45, H * 0.1, W / 2, H * 0.5, H * 0.85);
   rg.addColorStop(0, 'rgba(0, 50, 100, 0.08)');
   rg.addColorStop(1, 'rgba(0, 0, 0, 0.7)');
@@ -58,7 +67,7 @@ function makeBackground() {
 }
 const BG = makeBackground();
 
-// Neon glow drawing helper
+// Neon glow line helper
 function drawGlowLine(g, pts, color, coreColor, width = 4, glowWidth = 18) {
   if (pts.length < 2) return;
   g.save();
@@ -69,14 +78,15 @@ function drawGlowLine(g, pts, color, coreColor, width = 4, glowWidth = 18) {
   // Mid glow
   g.globalAlpha = g.globalAlpha / 0.25 * 0.6; g.lineWidth = glowWidth * 0.6;
   g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke();
-  // White/hot core
+  // Hot core
   g.strokeStyle = coreColor; g.globalAlpha = g.globalAlpha / 0.6 * 1.0; g.lineWidth = width;
   g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke();
   g.restore();
 }
 
 function text(g, s, x, y, { size = 40, font = SANS, weight = '', color = C.white, align = 'center', alpha = 1, base = 'middle', glow = false } = {}) {
-  if (alpha <= 0) return; g.save(); g.globalAlpha *= alpha; g.font = `${weight} ${size}px ${font}`.trim();
+  if (alpha <= 0) return;
+  g.save(); g.globalAlpha *= alpha; g.font = `${weight} ${size}px ${font}`.trim();
   g.textAlign = align; g.textBaseline = base;
   if (glow) {
     g.shadowColor = color; g.shadowBlur = size * 0.45;
@@ -85,448 +95,563 @@ function text(g, s, x, y, { size = 40, font = SANS, weight = '', color = C.white
   g.restore();
 }
 
-function rich(g, segs, x, y, { size, font = SERIF, weight = 'bold', alpha = 1, reveal = 1e9, align = 'center', glow = false }) {
-  g.save(); g.font = `${weight} ${size}px ${font}`; g.textBaseline = 'middle'; g.textAlign = 'left';
-  const full = segs.map(s => s[0]).join(''), w = g.measureText(full).width;
-  let cx = align === 'center' ? x - w / 2 : x, n = 0;
-  for (const [s, col] of segs) for (const ch of s) {
-    const a = clamp(reveal - n) * alpha; n++;
-    const cw = g.measureText(ch).width;
-    if (a > 0) {
-      g.globalAlpha = a;
-      if (glow) { g.shadowColor = col; g.shadowBlur = 24; }
-      g.fillStyle = col; g.fillText(ch, cx, y + (1 - a) * 8);
-    }
-    cx += cw;
-  }
-  g.restore(); return w;
+function rrect(g, x, y, w, h, r) {
+  g.beginPath();
+  g.roundRect(x, y, w, h, r);
 }
 
-function rrect(g, x, y, w, h, r) { g.beginPath(); g.roundRect(x, y, w, h, r); }
-
-// Glowing Clock
-function clock(g, cx, cy, r, hours, alpha) {
-  if (alpha <= 0) return; g.save(); g.globalAlpha *= alpha;
-  // outer dark glow plate
-  g.fillStyle = 'rgba(13, 20, 36, 0.85)'; g.strokeStyle = C.neonCyan; g.lineWidth = 3;
-  g.shadowColor = C.neonCyan; g.shadowBlur = 18;
-  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill(); g.stroke();
-  g.shadowBlur = 0;
-  // ticks
-  for (let k = 0; k < 12; k++) {
-    const a = k / 12 * Math.PI * 2, r0 = r * (k % 3 ? .86 : .76);
-    g.strokeStyle = k % 3 ? 'rgba(255,255,255,0.4)' : C.neonCyan;
-    g.lineWidth = k % 3 ? 2 : 4;
-    g.beginPath(); g.moveTo(cx + Math.sin(a) * r0, cy - Math.cos(a) * r0); g.lineTo(cx + Math.sin(a) * r * .92, cy - Math.cos(a) * r * .92); g.stroke();
-  }
-  // hour hand (cyan) & minute hand (glowing neon red)
-  const hand = (ang, len, w, c, glow) => {
-    g.save(); g.strokeStyle = c; g.lineWidth = w; g.lineCap = 'round';
-    if (glow) { g.shadowColor = c; g.shadowBlur = 15; }
-    g.beginPath(); g.moveTo(cx - Math.sin(ang) * len * .15, cy + Math.cos(ang) * len * .15);
-    g.lineTo(cx + Math.sin(ang) * len, cy - Math.cos(ang) * len); g.stroke();
-    g.restore();
-  };
-  hand((hours + 9) / 12 * Math.PI * 2, r * .5, 5, C.neonCyanCore, false);
-  hand(hours * Math.PI * 2, r * .78, 4, C.neonRed, true);
-  g.fillStyle = C.white; g.beginPath(); g.arc(cx, cy, 6, 0, Math.PI * 2); g.fill();
-  g.restore();
-}
-
-// Glowing Coin Stack
-function coin(g, x, y, w, alpha) {
-  if (alpha <= 0) return; g.save(); g.globalAlpha *= alpha;
-  const h = w * .3;
-  g.shadowColor = C.neonGold; g.shadowBlur = 14;
-  g.fillStyle = '#996B1E'; g.beginPath(); g.ellipse(x, y + h * .35, w / 2, h / 2, 0, 0, Math.PI * 2); g.fill();
-  g.fillStyle = C.neonGold; g.strokeStyle = '#FFE89E'; g.lineWidth = 2.5;
-  g.beginPath(); g.ellipse(x, y, w / 2, h / 2, 0, 0, Math.PI * 2); g.fill(); g.stroke();
-  g.restore();
-}
-
-// Graph coordinates
-const O = { x: 170, y: 1420 }, GX = 720, GY = 780;
-const curveY = x => 0.141 * (Math.exp(2 * x) - 1);
-function graphView(t) {
-  const z = lerp(1, 2.3, eio(ramp(t, K.zoom, 3.2)));
-  const zy = Math.max(1, curveY(1.3 * z) / 1.1 * eio(ramp(t, K.zoom, 3.2)) + (1 - eio(ramp(t, K.zoom, 3.2))));
-  return { px: x => O.x + x / z * GX, py: y => O.y - y / zy * GY, z, zy };
-}
-function graphAlpha(t) {
-  if (t < B[1]) return 0;
-  if (t < B[2]) return 1;
-  if (t < B[5]) return lerp(1, 0, ss(ramp(t, B[2], .6)));
-  return ss(ramp(t, B[5], .7)) * (1 - ss(ramp(t, B[7], .6)));
-}
-
-// Spark Particles for Collision
-const rndSpark = mulberry32(42);
-const SPARKS = Array.from({ length: 28 }, () => ({
-  vx: (rndSpark() - 0.5) * 450,
-  vy: -rndSpark() * 380 - 80,
-  size: 3 + rndSpark() * 5,
-  col: rndSpark() > 0.4 ? C.neonRed : C.neonGold,
-}));
-
-function drawGraph(g, t, A) {
-  if (A <= 0) return;
-  const v = graphView(t);
-  g.save(); g.globalAlpha *= A;
-
-  // Grid background within the graph area
+// Glowing Glassmorphic Card
+function drawCard(g, x, y, w, h, alpha = 1, borderColor = C.cardBorder) {
+  if (alpha <= 0) return;
   g.save();
-  g.strokeStyle = 'rgba(88, 166, 255, 0.08)'; g.lineWidth = 1;
-  for (let gy = 600; gy < O.y; gy += 100) { g.beginPath(); g.moveTo(O.x, gy); g.lineTo(O.x + GX + 80, gy); g.stroke(); }
-  for (let gx = O.x + 100; gx < O.x + GX + 80; gx += 100) { g.beginPath(); g.moveTo(gx, 550); g.lineTo(gx, O.y); g.stroke(); }
+  g.globalAlpha *= alpha;
+  rrect(g, x, y, w, h, 24);
+  g.fillStyle = C.cardBg;
+  g.shadowColor = 'rgba(0, 180, 255, 0.2)';
+  g.shadowBlur = 25;
+  g.fill();
+  g.strokeStyle = borderColor;
+  g.lineWidth = 2;
+  g.stroke();
+  g.restore();
+}
+
+// Subtitle Box Renderer
+function drawSubtitles(g, t) {
+  // Find active line
+  let curLine = null;
+  for (const line of LINES) {
+    if (t >= line.start_s && t < line.end_s + 0.3) {
+      curLine = line;
+      break;
+    }
+  }
+  if (!curLine) return;
+
+  const relT = t - curLine.start_s;
+  const lineDur = curLine.end_s - curLine.start_s;
+  const chunkCount = curLine.chunks.length;
+  const activeChunkIdx = clamp(Math.floor((relT / lineDur) * chunkCount), 0, chunkCount - 1);
+
+  const boxY = 1660, boxH = 150, boxW = 960, boxX = (W - boxW) / 2;
+  
+  // Backing pill
+  g.save();
+  g.fillStyle = 'rgba(8, 12, 22, 0.88)';
+  g.strokeStyle = 'rgba(88, 166, 255, 0.3)';
+  g.lineWidth = 1.5;
+  rrect(g, boxX, boxY, boxW, boxH, 28);
+  g.fill(); g.stroke();
   g.restore();
 
-  // Glowing Axes
-  const ua = eo(ramp(t, K.axes, 1.0));
-  drawGlowLine(g, [[O.x, O.y], [lerp(O.x, 980, ua), O.y]], C.neonCyan, C.neonCyanCore, 3, 12);
-  drawGlowLine(g, [[O.x, O.y], [O.x, lerp(O.y, 560, ua)]], C.neonCyan, C.neonCyanCore, 3, 12);
-  text(g, '收入', O.x, 510, { size: 36, align: 'center', alpha: ss(ramp(t, K.axes + .6, .5)), weight: 'bold', color: C.neonCyanCore, glow: true });
-  text(g, '时间', 1010, O.y + 45, { size: 36, alpha: ss(ramp(t, K.axes + .6, .5)), weight: 'bold', color: C.neonCyanCore, glow: true });
+  // Render chunks
+  const primaryText = curLine.chunks[activeChunkIdx];
+  text(g, primaryText, W / 2, boxY + 68, {
+    size: 42,
+    font: SANS,
+    weight: 'bold',
+    color: C.white,
+    glow: true
+  });
 
-  // Linear Line (Dim Grey Laser)
-  const lineX = Math.min(1, lerp(0, .82, eio(ramp(t, K.lineStart, K.wall - K.lineStart))) + lerp(0, .18, ss(ramp(t, K.wall + .5, K.hit - K.wall - .5))));
-  const s6 = ss(ramp(t, B[5], .8));
-  if (lineX > 0) {
-    const col = s6 > 0 ? 'rgba(139, 148, 158, 0.35)' : 'rgba(255, 255, 255, 0.85)';
-    g.strokeStyle = col; g.lineWidth = 5; g.lineCap = 'round';
-    g.beginPath(); g.moveTo(v.px(0), v.py(0)); g.lineTo(v.px(lineX), v.py(.55 * lineX)); g.stroke();
-    g.fillStyle = C.white; g.beginPath(); g.arc(v.px(lineX), v.py(.55 * lineX), 8, 0, Math.PI * 2); g.fill();
-  }
-  // Formula
-  const fa = ss(ramp(t, K.formula1, .5)) * (1 - ss(ramp(t, B[5], .6)));
-  rich(g, [['收入 = ', C.white], ['时间', C.neonRed], [' × 单价', C.white]], 540, 440, { size: 48, alpha: fa, reveal: (t - K.formula1) * 14, glow: true });
-  text(g, '出卖时间', v.px(1) - 20, v.py(.55) + 65, { size: 30, color: C.textMute, align: 'right', alpha: s6 * (1 - ss(ramp(t, K.zoom, .6))), weight: 'bold' });
-
-  // 24H Laser Wall (Glowing Electric Barrier)
-  const wd = ramp(t, K.wall, .45);
-  if (wd > 0) {
-    const wx = v.px(1), drop = eo(wd), yTop = 580, yBot = lerp(yTop, O.y, drop);
-    const hitK = Math.exp(-Math.max(0, t - K.hit) * 6) * (t >= K.hit ? 1 : 0);
-    const wallA = 1 - .7 * ss(ramp(t, K.decouple, 1.2));
-    g.save(); g.globalAlpha *= wallA;
-    // Glowing laser beam
-    g.strokeStyle = C.neonRed; g.shadowColor = C.neonRed; g.shadowBlur = 24 + 20 * hitK;
-    g.lineWidth = 5 + 6 * hitK; g.setLineDash([18, 12]);
-    const jx = hitK * 8 * Math.sin((t - K.hit) * 80);
-    g.beginPath(); g.moveTo(wx + jx, yTop); g.lineTo(wx + jx, yBot); g.stroke(); g.setLineDash([]);
-    g.shadowBlur = 0;
-    text(g, '24 小时 / 天', wx, 545, { size: 32, color: C.neonRed, weight: 'bold', alpha: ss(ramp(t, K.wall + .2, .4)) * (1 - ss(ramp(t, K.zoom, .5))), glow: true });
-    g.restore();
-
-    // Spark Particles & Impact Explosion on hit
-    if (t >= K.hit && t < B[2]) {
-      const dt = t - K.hit;
-      const hx = wx, hy = v.py(.55);
+  // Small progress dots for sentence chunks
+  if (chunkCount > 1) {
+    const dotSpacing = 28;
+    const startDotX = W / 2 - ((chunkCount - 1) * dotSpacing) / 2;
+    for (let i = 0; i < chunkCount; i++) {
       g.save();
-      for (const sp of SPARKS) {
-        const px = hx + sp.vx * dt;
-        const py = hy + sp.vy * dt + 0.5 * 900 * dt * dt;
-        const life = clamp(1 - dt * 2.5);
-        if (life > 0) {
-          g.globalAlpha = life; g.fillStyle = sp.col; g.shadowColor = sp.col; g.shadowBlur = 12;
-          g.beginPath(); g.arc(px, py, sp.size * life, 0, Math.PI * 2); g.fill();
-        }
+      const isActive = (i === activeChunkIdx);
+      g.fillStyle = isActive ? C.neonCyanCore : 'rgba(255, 255, 255, 0.25)';
+      if (isActive) {
+        g.shadowColor = C.neonCyan;
+        g.shadowBlur = 10;
       }
+      g.beginPath();
+      g.arc(startDotX + i * dotSpacing, boxY + 120, isActive ? 5 : 3.5, 0, Math.PI * 2);
+      g.fill();
       g.restore();
-      text(g, '天花板', wx - 35, v.py(.55) - 80, { size: 48, color: C.neonRed, weight: 'bold', font: SERIF, align: 'right', alpha: ss(ramp(t, K.ceil, .3)) * (1 - ss(ramp(t, B[2], .5))), glow: true });
+    }
+  }
+}
+
+// Render dynamic visual scene based on current sentence
+function drawScene(g, t) {
+  // Let us detect which sentence block is active
+  let sIndex = 0;
+  for (let i = 0; i < LINES.length; i++) {
+    if (t >= LINES[i].start_s && t < LINES[i].end_s) {
+      sIndex = i + 1;
+      break;
+    }
+    if (t < LINES[0].start_s) sIndex = 1;
+    if (t >= LINES[LINES.length - 1].end_s) sIndex = 21;
+  }
+  if (sIndex === 0) {
+    // interpolation between lines
+    for (let i = 0; i < LINES.length - 1; i++) {
+      if (t >= LINES[i].end_s && t < LINES[i+1].start_s) {
+        sIndex = i + 1;
+        break;
+      }
     }
   }
 
-  // 3B1B High-Energy Exponential Beam (S6–S7)
-  const cp = ramp(t, K.curve, 2.6);
-  if (cp > 0) {
-    const xEnd = lerp(0, 1.3, eio(cp)) * v.z;
-    const pts = [];
-    for (let k = 0; k <= 240; k++) {
-      const x = xEnd * k / 240;
-      pts.push([v.px(x), v.py(curveY(x))]);
-    }
-    g.save(); g.beginPath(); g.rect(O.x - 10, 520, 800, O.y - 510); g.clip();
-    drawGlowLine(g, pts, C.neonRed, C.neonRedCore, 7, 28);
-    // Glowing leading head tracer
-    if (pts.length > 0) {
-      const [hx, hy] = pts[pts.length - 1];
-      g.fillStyle = C.white; g.shadowColor = C.neonRed; g.shadowBlur = 30;
-      g.beginPath(); g.arc(hx, hy, 12, 0, Math.PI * 2); g.fill();
-    }
-    g.restore();
-
-    const la = ss(ramp(t, K.curve + 1.0, .5)) * (1 - ss(ramp(t, K.zoom, .5)));
-    text(g, '杠杆', v.px(.75) - 35, v.py(curveY(.75)) - 48, { size: 36, color: C.neonRed, weight: 'bold', align: 'center', alpha: la, glow: true });
-    text(g, '与时间脱钩', 540, 430, { size: 56, color: C.neonRed, weight: 'bold', font: SERIF, align: 'center', alpha: ss(ramp(t, K.decouple, .5)) * (1 - ss(ramp(t, K.zoom, .6))), glow: true });
-  }
-
-  // S7 Tag
-  rich(g, [['长期游戏 · 复利', C.neonGold]], 540, 440, { size: 60, align: 'center', alpha: 1, reveal: (t - K.longtag) * 12, glow: true });
-  g.restore();
-}
-
-// Formula Bar (Top)
-const FORM = [['专长', 'k1'], ['×', 'x'], ['杠杆', 'k2'], ['×', 'x'], ['判断力', 'k3'], ['=', 'eq'], ['财富', 'eq']];
-function drawFormula(g, t) {
-  const A = win(t, B[3] + .2, K.end + .3, .6, .6); if (A <= 0) return;
-  g.save(); g.font = `bold 46px ${SERIF}`;
-  const gap = 20, ws = FORM.map(f => g.measureText(f[0]).width), total = ws.reduce((a, b) => a + b, 0) + gap * (FORM.length - 1);
-  let x = W / 2 - total / 2; const y = 260;
-  const on = { k1: K.sprout - .3, k2: K.lever - .2, k3: K.judge, eq: K.wealth };
-  const cur = t < on.k2 ? 'k1' : t < on.k3 ? 'k2' : t < on.eq ? 'k3' : 'eq';
-  FORM.forEach(([s, k], i) => {
-    const kk = k === 'x' ? (i === 1 ? 'k2' : 'k3') : k;
-    const lit = ss(ramp(t, on[kk], .5));
-    let col = lit > 0 ? (kk === cur && t < K.end ? C.neonCyan : (k === 'eq' ? C.neonGold : C.white)) : 'rgba(255,255,255,0.25)';
-    g.globalAlpha = A;
-    if (lit > 0 && kk === cur) { g.shadowColor = col; g.shadowBlur = 18; } else { g.shadowBlur = 0; }
-    g.fillStyle = col; g.textBaseline = 'middle'; g.fillText(s, x, y);
-    if (k !== 'x' && k !== 'eq' && kk === cur && t < K.end) {
-      g.fillStyle = C.neonCyan; g.fillRect(x, y + 36, ws[i] * eo(ramp(t, on[kk], .5)), 4);
-    }
-    x += ws[i] + gap;
-  });
-  g.restore();
-}
-
-// Scene S1
-function sceneHook(g, t) {
-  const fly = eio(ramp(t, B[1], 1.1));
-  const gA = graphAlpha(t);
-  const cx = lerp(540, 980, fly), cy = lerp(680, 1420, fly), r = lerp(200, 30, fly);
-  const hours = Math.max(0, (Math.min(t, B[1] + 1.1) - .4) * 1.55);
-  const a = t < B[1] ? ss(ramp(t, .1, .6)) : (fly < 1 ? 1 : gA);
-  clock(g, cx, cy, r, hours, a * (t < B[2] ? 1 : gA));
-
-  const nCoins = Math.floor(hours), cA = 1 - ss(ramp(t, B[1], .6));
-  for (let k = 0; k < Math.min(nCoins + 1, 12); k++) {
-    const t0 = .4 + (k + 1) / 1.55, u = ramp(t, t0 - .35, .35);
-    if (u <= 0) continue;
-    const y = lerp(930, 1080 - k * 16, u * u);
-    coin(g, 540, y, 110, cA * clamp(u * 3));
-  }
-  const ta = win(t, K.title, B[1] + .5, .5, .5);
-  rich(g, [['出卖', C.white], ['时间', C.neonRed], ['，', C.white]], 540, 1220, { size: 78, alpha: ta, reveal: (t - K.title) * 14, glow: true });
-  rich(g, [['能致富吗？', C.white]], 540, 1315, { size: 78, alpha: ta, reveal: (t - K.title - .3) * 14, glow: true });
-}
-
-// Scene S3 Quote
-function moon(g, x, y, r, a) {
-  if (a <= 0) return; g.save(); g.globalAlpha *= a;
-  g.shadowColor = C.neonRed; g.shadowBlur = 30;
-  g.fillStyle = C.neonRed; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
-  g.globalCompositeOperation = 'destination-out';
-  g.beginPath(); g.arc(x + r * .45, y - r * .3, r * .88, 0, Math.PI * 2); g.fill();
-  g.restore();
-}
-function sceneQuote(g, t) {
-  const A = win(t, B[2] + .3, B[3] + .3, .6, .6); if (A <= 0) return;
-  moon(g, 540, 560, 50, A * ss(ramp(t, B[2] + .4, .6)));
-  text(g, '纳瓦尔说', 540, 680, { size: 40, color: C.textMute, alpha: A * ss(ramp(t, LS[2], .4)), weight: 'bold' });
-  const rv = (t - K.quote) / Math.max(.5, LE[2] - K.quote) * 19;
-  rich(g, [['财富，是在你', C.white], ['睡觉时', C.neonRed]], 540, 840, { size: 70, alpha: A, reveal: rv, glow: true });
-  rich(g, [['仍在为你赚钱的资产。', C.white]], 540, 960, { size: 70, alpha: A, reveal: rv - 9, glow: true });
-  text(g, '—— 意译自《纳瓦尔宝典》', 540, 1120, { size: 34, color: C.textMute, align: 'center', alpha: A * ss(ramp(t, LE[2], .5)) });
-}
-
-// Scene S4 专长之树
-function sceneKnowledge(g, t) {
-  const A = win(t, B[3] + .2, B[4] + .2, .5, .6); if (A <= 0) return;
-  g.save(); g.globalAlpha = A;
-  const cx = 540;
-  const sa = eo(ramp(t, B[3] + .3, .6));
-  // Curiosity glowing orb
-  g.shadowColor = C.neonCyan; g.shadowBlur = 24;
-  g.fillStyle = C.cardBg; g.strokeStyle = C.neonCyan; g.lineWidth = 4;
-  g.beginPath(); g.arc(cx, 1380, 58 * back(sa), 0, Math.PI * 2); g.fill(); g.stroke();
-  g.shadowBlur = 0;
-  text(g, '?', cx, 1382, { size: 68, font: SERIF, weight: 'bold', color: C.neonCyanCore, alpha: sa });
-  text(g, '好奇心', cx, 1475, { size: 36, color: C.textMute, weight: 'bold', alpha: ss(ramp(t, B[3] + .6, .5)) });
-
-  const gp = eio(ramp(t, K.sprout, Math.max(.8, K.node - K.sprout)));
-  const P = u => { const y = lerp(1322, 650, u); return [cx + Math.sin(u * Math.PI * 2) * 50, y]; };
-  if (gp > 0) {
-    const pts = [];
-    for (let k = 0; k <= 80; k++) pts.push(P(gp * k / 80));
-    drawGlowLine(g, pts, C.neonGreen, C.neonGreenCore, 6, 20);
-    // glowing leaves
-    for (const [u, side] of [[.25, -1], [.45, 1], [.68, -1], [.88, 1]]) {
-      const la = eo(ramp(gp, u, .15)); if (la <= 0) continue;
-      const [x, y] = P(u); g.save(); g.translate(x, y); g.rotate(side * .65); g.scale(la, la);
-      g.fillStyle = C.neonGreen; g.shadowColor = C.neonGreen; g.shadowBlur = 14;
-      g.beginPath(); g.ellipse(side * 36, 0, 36, 14, 0, 0, Math.PI * 2); g.fill(); g.restore();
-    }
-  }
-
-  // Glowing 专长 Node
-  const na = back(ramp(t, K.node, .5));
-  if (na > 0) {
-    const [x, y] = P(1);
-    g.fillStyle = C.neonRed; g.shadowColor = C.neonRed; g.shadowBlur = 35;
-    g.beginPath(); g.arc(x, y - 50, 84 * na, 0, Math.PI * 2); g.fill();
-    g.shadowBlur = 0;
-    text(g, '专长', x, y - 50, { size: 54, font: SERIF, weight: 'bold', color: C.white, alpha: clamp(na) });
-  }
-
-  // Glassmorphic tags
-  const tag = (s, x, y, t0) => {
-    const u = eo(ramp(t, t0, .5)); if (u <= 0) return;
-    g.save(); g.globalAlpha *= u;
-    g.font = `bold 44px ${SANS}`; const w = g.measureText(s).width + 60;
-    g.fillStyle = C.cardBg; g.strokeStyle = C.cardBorder; g.lineWidth = 2.5;
-    g.shadowColor = C.neonCyan; g.shadowBlur = 16;
-    rrect(g, x - w / 2, y - 44, w, 88, 44); g.fill(); g.stroke();
-    g.shadowBlur = 0;
-    text(g, s, x, y + 2, { size: 44, weight: 'bold', color: C.white, align: 'center' });
-    g.restore();
-  };
-  tag('无法被培训', 310, 820, K.tag1);
-  tag('源于好奇心', 770, 1020, K.tag2);
-  g.restore();
-}
-
-// Scene S5 杠杆
-function person(g, x, y, s, col) { g.fillStyle = col; g.beginPath(); g.arc(x, y - s * .55, s * .28, 0, Math.PI * 2); g.fill(); g.beginPath(); g.ellipse(x, y + s * .25, s * .42, s * .4, 0, Math.PI, 0); g.fill(); }
-function lock(g, x, y, a) {
-  if (a <= 0) return; g.save(); g.globalAlpha *= a; g.strokeStyle = C.textMute; g.fillStyle = C.textMute; g.lineWidth = 5;
-  g.beginPath(); g.arc(x, y - 10, 13, Math.PI, 0); g.stroke(); rrect(g, x - 20, y - 10, 40, 30, 5); g.fill(); g.restore();
-}
-function sceneLeverage(g, t) {
-  const A = win(t, B[4] + .2, B[5] + .3, .5, .6); if (A <= 0) return;
-  g.save(); g.globalAlpha = A;
-  text(g, '需要许可', 320, 420, { size: 36, color: C.textMute, weight: 'bold', alpha: ss(ramp(t, K.lock, .4)) });
-  text(g, '无需许可', 760, 420, { size: 36, color: C.neonRed, weight: 'bold', alpha: ss(ramp(t, K.code, .4)), glow: true });
-
-  const tile = (cx, cy, name, t0, perm, icon) => {
-    const u = back(ramp(t, t0, .45)); if (u <= 0) return;
-    g.save(); g.translate(cx, cy); g.scale(clamp(u, 0, 1.2), clamp(u, 0, 1.2));
-    g.fillStyle = perm ? 'rgba(25, 30, 45, 0.8)' : 'rgba(45, 20, 30, 0.85)';
-    g.strokeStyle = perm ? 'rgba(255, 255, 255, 0.15)' : C.neonRed;
-    g.lineWidth = perm ? 2.5 : 4;
-    if (!perm) { g.shadowColor = C.neonRed; g.shadowBlur = 24; }
-    rrect(g, -170, -115, 340, 230, 22); g.fill(); g.stroke();
-    g.shadowBlur = 0;
-    icon(perm ? C.textMute : C.neonRedCore);
-    text(g, name, 0, 70, { size: 48, font: SERIF, weight: 'bold', color: perm ? C.textMute : C.white });
-    if (perm) lock(g, 130, -78, ss(ramp(t, K.lock, .3)));
-    g.restore();
-  };
-  tile(320, 580, '劳动力', K.labor, true, c => { person(g, -46, -20, 44, c); person(g, 0, -28, 50, c); person(g, 46, -20, 44, c); });
-  tile(320, 870, '资本', K.capital, true, () => { for (let k = 0; k < 4; k++) coin(g, 0, 0 - k * 14, 90, 1); });
-  tile(760, 580, '代码', K.code, false, c => text(g, '</>', 0, -24, { size: 76, weight: 'bold', color: c, glow: true }));
-  tile(760, 870, '媒体', K.media, false, c => {
-    g.fillStyle = c; rrect(g, -55, -65, 110, 80, 14); g.fill();
-    g.fillStyle = '#080B10'; g.beginPath(); g.moveTo(-14, -46); g.lineTo(22, -25); g.lineTo(-14, -4); g.closePath(); g.fill();
+  // Common header
+  text(g, 'NAVAL RAVIKANT · ALMANACK', W / 2, 180, {
+    size: 24, font: SANS, weight: 'bold', color: 'rgba(88, 166, 255, 0.7)', glow: false
   });
 
-  // Futuristic Lever bar
-  const la = ss(ramp(t, K.lever, .5));
-  if (la > 0) {
-    g.save(); g.globalAlpha *= la;
-    const px = 480, py = 1280, ang = lerp(.12, -.14, eio(ramp(t, K.tilt, .9)));
-    // Fulcrum
-    g.fillStyle = C.neonCyan; g.shadowColor = C.neonCyan; g.shadowBlur = 20;
-    g.beginPath(); g.moveTo(px, py); g.lineTo(px - 34, py + 58); g.lineTo(px + 34, py + 58); g.closePath(); g.fill();
-    g.shadowBlur = 0;
-    g.translate(px, py); g.rotate(ang);
-    // Metallic glowing bar
-    g.fillStyle = '#1F293D'; g.strokeStyle = C.neonCyan; g.lineWidth = 2.5;
-    rrect(g, -240, -12, 680, 12, 6); g.fill(); g.stroke();
-    // Heavy mass
-    g.fillStyle = '#3A4459'; rrect(g, -230, -12 - 96, 116, 96, 8); g.fill();
-    // Downward Neon Arrow
-    g.fillStyle = C.neonRed; g.shadowColor = C.neonRed; g.shadowBlur = 20;
-    g.beginPath(); g.moveTo(420, -70); g.lineTo(400, -110); g.lineTo(440, -110); g.closePath(); g.fill();
-    g.fillRect(414, -150, 12, 42);
+  // Scene rendering switch
+  if (sIndex === 1) {
+    // S01: 7:00 打工人 80 小时
+    drawCard(g, 100, 320, 880, 1180);
+    // Clock
+    const uClock = ss(ramp(t, 0.5, 1.2));
+    const cx = W / 2, cy = 680, r = 200;
+    g.save();
+    g.strokeStyle = C.neonCyan; g.lineWidth = 4;
+    g.shadowColor = C.neonCyan; g.shadowBlur = 20;
+    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
+    // Clock hands at 07:00
+    const hrAngle = (7 / 12) * Math.PI * 2;
+    g.lineWidth = 6; g.strokeStyle = C.neonGold;
+    g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.sin(hrAngle)*100, cy - Math.cos(hrAngle)*100); g.stroke();
+    g.lineWidth = 4; g.strokeStyle = C.neonCyanCore;
+    g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx, cy - 150); g.stroke();
     g.restore();
+
+    text(g, '07:00 AM', W / 2, 950, { size: 68, weight: 'bold', color: C.neonCyanCore, glow: true });
+    
+    // 80 Hours Counter
+    const hours = Math.round(lerp(40, 80, ss(ramp(t, 2.5, 3.0))));
+    text(g, `每周拼命干满 ${hours} 小时`, W / 2, 1080, { size: 48, weight: 'bold', color: C.neonRedCore, glow: true });
+    text(g, '为什么依然存不下真正的财富？', W / 2, 1200, { size: 38, color: C.textMute });
   }
-  g.restore();
+  else if (sIndex === 2) {
+    // S02: 工时陷阱与归零曲线
+    drawCard(g, 100, 320, 880, 1180);
+    text(g, '工时陷阱：收入 = 时间 × 单价', W / 2, 420, { size: 44, weight: 'bold', color: C.neonRedCore, glow: true });
+    
+    // Axes
+    const ox = 220, oy = 1250, gx = 640, gy = 600;
+    drawGlowLine(g, [[ox, oy], [ox + gx, oy]], C.neonCyan, C.neonCyanCore, 3, 10);
+    drawGlowLine(g, [[ox, oy], [ox, oy - gy]], C.neonCyan, C.neonCyanCore, 3, 10);
+    text(g, '时间', ox + gx + 30, oy + 10, { size: 30, color: C.neonCyan });
+    text(g, '收入', ox, oy - gy - 30, { size: 30, color: C.neonCyan });
+
+    // Linear rising then plummeting
+    const relT = t - LINES[1].start_s;
+    const progress = clamp(relT / 6.0);
+    const pts = [];
+    const stopX = 0.58;
+    if (progress < stopX) {
+      pts.push([ox, oy]);
+      pts.push([ox + progress * gx, oy - progress * gy * 0.8]);
+      drawGlowLine(g, pts, C.neonCyan, C.white, 5, 14);
+    } else {
+      pts.push([ox, oy]);
+      pts.push([ox + stopX * gx, oy - stopX * gy * 0.8]);
+      pts.push([ox + stopX * gx, oy]); // Sudden drop to zero!
+      drawGlowLine(g, pts, C.neonRed, C.neonRedCore, 6, 18);
+      text(g, '一旦停下休息 ➔ 收入归零', W / 2, 700, { size: 42, weight: 'bold', color: C.neonRed, glow: true });
+    }
+  }
+  else if (sIndex === 3) {
+    // S03: 反直觉真相：努力与财富没有线性关系
+    drawCard(g, 100, 320, 880, 1180);
+    text(g, '《纳瓦尔宝典》反直觉真相', W / 2, 440, { size: 42, color: C.neonGold, glow: true });
+    text(g, '努力 ≠ 财富', W / 2, 600, { size: 84, weight: 'bold', color: C.neonRedCore, glow: true });
+    text(g, '没有线性关系', W / 2, 720, { size: 52, weight: 'bold', color: C.white });
+
+    // Compare curves
+    const ox = 240, oy = 1300;
+    drawGlowLine(g, [[ox, oy], [ox + 600, oy - 200]], 'rgba(139,148,158,0.5)', 'rgba(255,255,255,0.7)', 3, 6);
+    text(g, '单纯线性苦干', ox + 610, oy - 200, { size: 28, color: C.textMute, align: 'left' });
+
+    // Exponential leap curve
+    const expPts = [];
+    for (let x = 0; x <= 600; x += 20) {
+      const u = x / 600;
+      const y = Math.pow(u, 3) * 450;
+      expPts.push([ox + x, oy - y]);
+    }
+    drawGlowLine(g, expPts, C.neonGold, C.neonGoldCore, 5, 18);
+    text(g, '反直觉复利跃迁 ➔', ox + 380, oy - 480, { size: 34, weight: 'bold', color: C.neonGoldCore, glow: true, align: 'left' });
+  }
+  else if (sIndex === 4) {
+    // S04: 工时欠条 vs 睡后资产
+    drawCard(g, 100, 340, 880, 520, 1, 'rgba(255, 56, 92, 0.4)');
+    text(g, '金钱 (Money)', W / 2, 440, { size: 34, color: C.neonRedCore });
+    text(g, '只是社会开出的工时欠条', W / 2, 530, { size: 46, weight: 'bold', color: C.white, glow: true });
+    text(g, '需要不断用新时间去兑换', W / 2, 620, { size: 32, color: C.textMute });
+
+    drawCard(g, 100, 920, 880, 560, 1, 'rgba(6, 214, 160, 0.5)');
+    text(g, '真正的财富 (Wealth)', W / 2, 1020, { size: 36, color: C.neonGreenCore, glow: true });
+    text(g, '睡觉时仍在帮你赚钱的资产', W / 2, 1120, { size: 50, weight: 'bold', color: C.neonGreenCore, glow: true });
+    text(g, '工厂 · 代码 · 知识产权 · 资本', W / 2, 1230, { size: 34, color: C.white });
+  }
+  else if (sIndex === 5) {
+    // S05: 怎样拥有？公式：把自己产品化
+    drawCard(g, 100, 360, 880, 1100);
+    text(g, '纳瓦尔终极财富公式', W / 2, 500, { size: 44, color: C.neonGold });
+    
+    // Core Formula Pill
+    const fw = 740, fh = 200, fx = (W - fw) / 2, fy = 660;
+    g.save();
+    rrect(g, fx, fy, fw, fh, 32);
+    g.fillStyle = 'rgba(6, 214, 160, 0.15)';
+    g.strokeStyle = C.neonGreen; g.lineWidth = 4;
+    g.shadowColor = C.neonGreen; g.shadowBlur = 30;
+    g.fill(); g.stroke();
+    g.restore();
+
+    text(g, '【 把自己产品化 】', W / 2, fy + 100, { size: 66, weight: 'bold', color: C.neonGreenCore, glow: true });
+    text(g, 'Productize Yourself', W / 2, fy + 160, { size: 30, color: C.neonGreen });
+
+    text(g, '“把自己” = 独特的独门专长', W / 2, 1000, { size: 42, color: C.white });
+    text(g, '“产品化” = 挂上杠杆无限复制', W / 2, 1110, { size: 42, color: C.neonCyanCore, glow: true });
+  }
+  else if (sIndex === 6) {
+    // S06: 三脚架模型：专长支点 + 商业杠杆 + 判断力
+    drawCard(g, 100, 340, 880, 1140);
+    text(g, '财富三脚架支点模型', W / 2, 440, { size: 44, weight: 'bold', color: C.neonGoldCore, glow: true });
+
+    // 3 Nodes
+    const p1 = { x: W / 2 - 240, y: 720, label: '专长', sub: '独门支点', col: C.neonCyan };
+    const p2 = { x: W / 2 + 240, y: 720, label: '杠杆', sub: '百倍放大器', col: C.neonGold };
+    const p3 = { x: W / 2, y: 1150, label: '判断力', sub: '罗盘控方向', col: C.neonGreen };
+
+    // Triangle lines
+    drawGlowLine(g, [[p1.x, p1.y], [p2.x, p2.y]], C.rule, C.white, 3, 8);
+    drawGlowLine(g, [[p2.x, p2.y], [p3.x, p3.y]], C.rule, C.white, 3, 8);
+    drawGlowLine(g, [[p3.x, p3.y], [p1.x, p1.y]], C.rule, C.white, 3, 8);
+
+    [p1, p2, p3].forEach(p => {
+      g.save();
+      g.fillStyle = p.col;
+      g.shadowColor = p.col; g.shadowBlur = 24;
+      g.beginPath(); g.arc(p.x, p.y, 70, 0, Math.PI * 2); g.fill();
+      g.restore();
+      text(g, p.label, p.x, p.y, { size: 36, weight: 'bold', color: C.bg });
+      text(g, p.sub, p.x, p.y + 110, { size: 30, color: C.white, glow: true });
+    });
+  }
+  else if (sIndex === 7) {
+    // S07: 专长·培训班批量技能 vs 自动化替代
+    drawCard(g, 100, 340, 880, 1140);
+    text(g, '支点一：专长 (Specific Knowledge)', W / 2, 440, { size: 40, color: C.neonCyanCore, glow: true });
+    
+    drawCard(g, 160, 560, 760, 240, 1, 'rgba(255, 56, 92, 0.3)');
+    text(g, '⚠️ 凡是培训班能批量教的技能', W / 2, 640, { size: 38, weight: 'bold', color: C.neonRedCore });
+    text(g, '明天就能培训别人廉价替代你', W / 2, 720, { size: 34, color: C.white });
+
+    // Laser scanning code
+    drawCard(g, 160, 870, 760, 480, 1, 'rgba(0, 212, 255, 0.2)');
+    text(g, 'const replaceHuman = async (worker) => {', 200, 960, { size: 28, font: 'monospace', color: C.neonGreen, align: 'left' });
+    text(g, '  await aiModel.automate(worker.tasks);', 200, 1030, { size: 28, font: 'monospace', color: C.neonCyanCore, align: 'left' });
+    text(g, '  return { cost: 0.001, speed: 1000x };', 200, 1100, { size: 28, font: 'monospace', color: C.neonGold, align: 'left' });
+    text(g, '};', 200, 1170, { size: 28, font: 'monospace', color: C.neonGreen, align: 'left' });
+    text(g, '“甚至用几行代码接管你”', W / 2, 1270, { size: 42, weight: 'bold', color: C.neonRedCore, glow: true });
+  }
+  else if (sIndex === 8) {
+    // S08: 苦役 vs 玩耍
+    drawCard(g, 100, 340, 880, 1140);
+    text(g, '真正的专长藏在天赋与好奇里', W / 2, 440, { size: 42, color: C.neonGoldCore, glow: true });
+
+    drawCard(g, 160, 560, 760, 340, 1, 'rgba(139, 148, 158, 0.3)');
+    text(g, '别人做起来：苦役 (Work)', W / 2, 660, { size: 44, color: C.textMute });
+    text(g, '痛苦 · 枯燥 · 消耗意志力', W / 2, 760, { size: 34, color: 'rgba(255,255,255,0.6)' });
+
+    drawCard(g, 160, 960, 760, 420, 1, 'rgba(6, 214, 160, 0.4)');
+    text(g, '你做起来：玩耍 (Play)', W / 2, 1080, { size: 54, weight: 'bold', color: C.neonGreenCore, glow: true });
+    text(g, '像玩游戏一样着迷 · 乐此不疲', W / 2, 1190, { size: 38, color: C.white });
+    text(g, '自然形成深不见底的行业壁垒', W / 2, 1270, { size: 32, color: C.neonGold });
+  }
+  else if (sIndex === 9) {
+    // S09: 在“成为你自己”这件事上，无人能敌
+    drawCard(g, 100, 360, 880, 1100);
+    // Glowing Crown / DNA Geometry
+    const cx = W / 2, cy = 680;
+    g.save();
+    g.strokeStyle = C.neonGold; g.lineWidth = 4;
+    g.shadowColor = C.neonGold; g.shadowBlur = 30;
+    g.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const r = i % 2 === 0 ? 160 : 90;
+      const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+      i === 0 ? g.moveTo(x, y) : g.lineTo(x, y);
+    }
+    g.closePath(); g.stroke();
+    g.restore();
+
+    text(g, '在“成为你自己”这件事上', W / 2, 980, { size: 48, weight: 'bold', color: C.white });
+    text(g, '全世界没有任何人能和你竞争', W / 2, 1100, { size: 52, weight: 'bold', color: C.neonGoldCore, glow: true });
+    text(g, '“No one can compete with you on being you.”', W / 2, 1220, { size: 30, color: C.textMute });
+  }
+  else if (sIndex === 10) {
+    // S10: 商业杠杆（双手只能卖一次）
+    drawCard(g, 100, 340, 880, 1140);
+    text(g, '支点二：商业杠杆 (Leverage)', W / 2, 440, { size: 44, color: C.neonGoldCore, glow: true });
+    
+    // Seesaw / Lever illustration
+    const lx = 200, rx = 880, py = 850;
+    const fulcrumX = 360;
+    // Lever bar
+    drawGlowLine(g, [[lx, py + 120], [rx, py - 180]], C.neonCyan, C.white, 6, 16);
+    // Fulcrum triangle
+    g.save();
+    g.fillStyle = C.neonGold; g.shadowColor = C.neonGold; g.shadowBlur = 20;
+    g.beginPath();
+    g.moveTo(fulcrumX, py + 80);
+    g.lineTo(fulcrumX - 40, py + 160);
+    g.lineTo(fulcrumX + 40, py + 160);
+    g.closePath(); g.fill();
+    g.restore();
+
+    text(g, '双手干活 ➔ 1份时间只能卖1次', W / 2, 1120, { size: 42, color: C.neonRedCore, glow: true });
+    text(g, '你需要杠杆放大你的每分每秒', W / 2, 1240, { size: 44, weight: 'bold', color: C.neonGoldCore, glow: true });
+  }
+  else if (sIndex === 11) {
+    // S11: 劳动力杠杆
+    drawCard(g, 100, 340, 880, 1140);
+    text(g, '杠杆类型 1：劳动力 (Labor)', W / 2, 440, { size: 42, color: C.neonCyanCore, glow: true });
+    text(g, '单打独斗打工人 ➔ 零杠杆', W / 2, 580, { size: 36, color: C.textMute });
+
+    // Pyramid of workers
+    const cy = 820;
+    text(g, '👑 公司老板', W / 2, cy - 80, { size: 46, weight: 'bold', color: C.neonGoldCore });
+    text(g, '👥 雇佣管理团队 · 组织协同', W / 2, cy + 40, { size: 38, color: C.white });
+    text(g, '靠团队工时接下百万大单', W / 2, cy + 150, { size: 44, weight: 'bold', color: C.neonCyanCore, glow: true });
+    text(g, '但：管理成本极高，充满内部博弈', W / 2, 1240, { size: 34, color: C.neonRedCore });
+  }
+  else if (sIndex === 12) {
+    // S12: 资本杠杆
+    drawCard(g, 100, 340, 880, 1140);
+    text(g, '杠杆类型 2：资本 (Capital)', W / 2, 440, { size: 42, color: C.neonGoldCore, glow: true });
+
+    // Multiplier box
+    const mx = W / 2, my = 750;
+    text(g, '出资 10,000,000 元入股', mx, my - 100, { size: 40, color: C.white });
+    text(g, '× 资本倍增器', mx, my, { size: 54, weight: 'bold', color: C.neonGoldCore, glow: true });
+    text(g, '单笔赚走上千万回报', mx, my + 100, { size: 46, weight: 'bold', color: C.neonGreenCore, glow: true });
+
+    text(g, '二十世纪最主流的财富跃迁杠杆', W / 2, 1150, { size: 36, color: C.white });
+    text(g, '但：需要大量原始本金与信用背书', W / 2, 1250, { size: 32, color: C.textMute });
+  }
+  else if (sIndex === 13) {
+    // S13: 旧杠杆的死门：需要许可
+    drawCard(g, 100, 340, 880, 1140, 1, 'rgba(255, 56, 92, 0.4)');
+    text(g, '旧杠杆的共同死穴：', W / 2, 460, { size: 40, color: C.neonRedCore });
+    
+    // Giant Padlock
+    const cx = W / 2, cy = 720;
+    g.save();
+    g.strokeStyle = C.neonRed; g.lineWidth = 6;
+    g.shadowColor = C.neonRed; g.shadowBlur = 30;
+    // shackle
+    g.beginPath(); g.arc(cx, cy - 50, 70, Math.PI, 0); g.stroke();
+    // lock body
+    rrect(g, cx - 100, cy - 50, 200, 160, 20);
+    g.fillStyle = 'rgba(255, 56, 92, 0.25)'; g.fill(); g.stroke();
+    g.restore();
+
+    text(g, '【 必须经过别人的许可 】', W / 2, 980, { size: 52, weight: 'bold', color: C.neonRedCore, glow: true });
+    text(g, '得有人愿意追随你 · 或把钱交给你', W / 2, 1100, { size: 38, color: C.white });
+    text(g, '门槛极高，普通人寸步难行', W / 2, 1200, { size: 34, color: C.textMute });
+  }
+  else if (sIndex === 14) {
+    // S14: 第三杠杆：0 边际成本的代码和媒体
+    drawCard(g, 100, 340, 880, 1140);
+    text(g, '互联网时代第三种新杠杆', W / 2, 440, { size: 42, color: C.neonGreenCore, glow: true });
+    
+    drawCard(g, 160, 580, 760, 260, 1, 'rgba(0, 212, 255, 0.4)');
+    text(g, '💻 代码 (Code)', W / 2, 660, { size: 46, weight: 'bold', color: C.neonCyanCore, glow: true });
+    text(g, '软件 · 算法 · 自动化脚本', W / 2, 750, { size: 34, color: C.white });
+
+    drawCard(g, 160, 880, 760, 260, 1, 'rgba(255, 209, 102, 0.4)');
+    text(g, '📱 媒体 (Media)', W / 2, 960, { size: 46, weight: 'bold', color: C.neonGoldCore, glow: true });
+    text(g, '视频 · 文章 · 播客 · 开源', W / 2, 1050, { size: 34, color: C.white });
+
+    text(g, '复制边际成本 = 0 (Marginal Cost = 0)', W / 2, 1280, { size: 42, weight: 'bold', color: C.neonGreenCore, glow: true });
+  }
+  else if (sIndex === 15) {
+    // S15: 无需许可，服务器机器人 24 小时打工
+    drawCard(g, 100, 340, 880, 1140);
+    text(g, '免许可杠杆 (Permissionless)', W / 2, 440, { size: 44, color: C.neonCyanCore, glow: true });
+    text(g, '写一段程序 或 录一条视频', W / 2, 580, { size: 46, weight: 'bold', color: C.white });
+    text(g, '不需要向任何人申请批准！', W / 2, 670, { size: 42, color: C.neonGoldCore, glow: true });
+
+    // Server Grid
+    drawCard(g, 160, 780, 760, 420, 1, 'rgba(6, 214, 160, 0.3)');
+    text(g, '🤖 数据中心服务器集群', W / 2, 880, { size: 44, color: C.neonGreenCore, glow: true });
+    text(g, '全天候 24 小时为你免费打工', W / 2, 980, { size: 46, weight: 'bold', color: C.white });
+    text(g, '不睡觉 · 不喊累 · 无限扩张', W / 2, 1080, { size: 36, color: C.neonCyanCore });
+
+    text(g, '平民实现跃迁的最强武器', W / 2, 1310, { size: 38, color: C.white });
+  }
+  else if (sIndex === 16) {
+    // S16: 专长 + 资本 + 代码 = 放大上千倍
+    drawCard(g, 100, 340, 880, 1140);
+    text(g, '超级平台聚变效应', W / 2, 440, { size: 42, color: C.neonGoldCore });
+
+    text(g, '个人专长', W / 2, 560, { size: 42, color: C.neonCyanCore });
+    text(g, '➕ 资本杠杆 ➕ 代码媒体', W / 2, 650, { size: 42, color: C.neonGreenCore });
+    text(g, '⬇️', W / 2, 750, { size: 44, color: C.white });
+
+    drawCard(g, 160, 820, 760, 320, 1, 'rgba(255, 209, 102, 0.5)');
+    text(g, '单打独斗 ➔ 超级个体平台', W / 2, 920, { size: 48, weight: 'bold', color: C.white });
+    text(g, '产出放大 1000 倍！', W / 2, 1030, { size: 66, weight: 'bold', color: C.neonGoldCore, glow: true });
+
+    text(g, '一人公司撬动亿级商业版图', W / 2, 1280, { size: 38, color: C.neonCyanCore });
+  }
+  else if (sIndex === 17) {
+    // S17: 杠杆双刃剑·方向偏了苦干全废，支点三是判断力
+    drawCard(g, 100, 340, 880, 1140, 1, 'rgba(255, 56, 92, 0.4)');
+    text(g, '⚠️ 千倍杠杆的双刃剑', W / 2, 440, { size: 42, color: C.neonRedCore });
+    text(g, '方向一旦偏了 ➔ 千倍加速毁灭', W / 2, 580, { size: 46, weight: 'bold', color: C.neonRedCore, glow: true });
+    text(g, '十倍苦干也全是白费！', W / 2, 680, { size: 42, color: C.white });
+
+    // Compass
+    drawCard(g, 160, 800, 760, 480, 1, 'rgba(6, 214, 160, 0.4)');
+    text(g, '第三个支点：判断力 (Judgment)', W / 2, 910, { size: 44, weight: 'bold', color: C.neonGreenCore, glow: true });
+    text(g, '在关键分岔路口做正确抉择的能力', W / 2, 1020, { size: 36, color: C.white });
+    text(g, '“方向比努力重要 1000 倍”', W / 2, 1150, { size: 46, weight: 'bold', color: C.neonGoldCore, glow: true });
+  }
+  else if (sIndex === 18) {
+    // S18: 千亿企业 85% vs 75% 判断力，撬动百亿价值
+    drawCard(g, 100, 340, 880, 1140);
+    text(g, '千亿美元市值企业中的判断力', W / 2, 430, { size: 40, color: C.neonGoldCore });
+
+    // Compare 75% vs 85%
+    drawCard(g, 160, 520, 760, 240, 1, 'rgba(139, 148, 158, 0.3)');
+    text(g, '普通高管：75% 准确率', 220, 600, { size: 36, color: C.textMute, align: 'left' });
+    text(g, '常规决策回报，面临巨大杠杆回撤', 220, 680, { size: 30, color: 'rgba(255,255,255,0.7)', align: 'left' });
+
+    drawCard(g, 160, 790, 760, 300, 1, 'rgba(6, 214, 160, 0.4)');
+    text(g, '顶级领袖：85% 准确率 (+10%)', 220, 880, { size: 40, weight: 'bold', color: C.neonGreenCore, align: 'left', glow: true });
+    text(g, '哪怕只多对 10% ➔ 乘上千亿杠杆', 220, 960, { size: 34, color: C.white, align: 'left' });
+    text(g, '多创百亿美元企业价值！', 220, 1030, { size: 42, weight: 'bold', color: C.neonGoldCore, align: 'left', glow: true });
+
+    text(g, '“所以公司愿多付上亿美元报酬”', W / 2, 1260, { size: 42, weight: 'bold', color: C.white });
+  }
+  else if (sIndex === 19) {
+    // S19: 纳瓦尔 5000 美元时薪，一年深思，一天果断出手
+    drawCard(g, 100, 340, 880, 1140);
+    text(g, '顶级判断力的修炼之道', W / 2, 440, { size: 42, color: C.neonCyanCore });
+    
+    // 5000/hr badge
+    text(g, '给自己定下：$5,000 / 小时', W / 2, 580, { size: 54, weight: 'bold', color: C.neonGoldCore, glow: true });
+    text(g, '砍掉琐事 · 拒绝无效社交', W / 2, 690, { size: 38, color: C.neonRedCore });
+
+    drawCard(g, 160, 800, 760, 440, 1, 'rgba(0, 212, 255, 0.3)');
+    text(g, '用 364 天深度思考', W / 2, 920, { size: 48, weight: 'bold', color: C.white });
+    text(g, '⬇️', W / 2, 1020, { size: 40, color: C.neonGold });
+    text(g, '再用 1 天果断出手！', W / 2, 1120, { size: 54, weight: 'bold', color: C.neonGreenCore, glow: true });
+  }
+  else if (sIndex === 20) {
+    // S20: 回到早上 7 点，财富分水岭不是熬通宵
+    drawCard(g, 100, 340, 880, 1140);
+    text(g, '回到早上七点出门上班的清晨', W / 2, 460, { size: 42, color: C.neonCyanCore });
+
+    // The Great Divide
+    text(g, '人与人真正的财富分水岭：', W / 2, 660, { size: 48, weight: 'bold', color: C.white });
+    text(g, '❌ 从来不是谁多熬了几个通宵', W / 2, 820, { size: 46, weight: 'bold', color: C.neonRedCore, glow: true });
+    text(g, '不是比拼肉体疲劳度', W / 2, 930, { size: 34, color: C.textMute });
+    text(g, '而是商业操作系统与杠杆的维度差', W / 2, 1160, { size: 42, weight: 'bold', color: C.neonGoldCore, glow: true });
+  }
+  else if (sIndex === 21) {
+    // S21: 终极金句收尾
+    drawCard(g, 100, 340, 880, 1140, 1, 'rgba(255, 209, 102, 0.5)');
+    text(g, '《纳瓦尔宝典》行动纲领', W / 2, 440, { size: 40, color: C.neonGold });
+
+    text(g, '1. 找到像玩耍一样的独门专长', W / 2, 580, { size: 42, weight: 'bold', color: C.white });
+    text(g, '2. 挂上免许可的代码与媒体杠杆', W / 2, 700, { size: 42, weight: 'bold', color: C.neonCyanCore, glow: true });
+    text(g, '3. 用顶级判断力做方向掌舵', W / 2, 820, { size: 42, weight: 'bold', color: C.neonGreenCore, glow: true });
+
+    // Golden Box
+    drawCard(g, 140, 960, 800, 240, 1, 'rgba(255, 209, 102, 0.7)');
+    text(g, '把自己打造成一份', W / 2, 1030, { size: 40, color: C.white });
+    text(g, '【 无限复制的产品 】', W / 2, 1120, { size: 60, weight: 'bold', color: C.neonGoldCore, glow: true });
+
+    text(g, '脱离时间束缚 · 获得终极自由', W / 2, 1330, { size: 36, color: C.neonCyanCore });
+  }
 }
 
-// Scene S8 End
-function sceneEnd(g, t) {
-  const A = ss(ramp(t, K.end, .7)); if (A <= 0) return;
-  clock(g, 540, 600, 84, 10, A * .9);
-  rich(g, [['用', C.white], ['头脑', C.neonRed], ['赚钱，', C.white]], 540, 820, { size: 84, alpha: A, reveal: (t - K.end) * 14, glow: true });
-  rich(g, [['而不是用', C.white], ['时间', C.textMute], ['。', C.white]], 540, 940, { size: 84, alpha: A, reveal: (t - K.end - .5) * 14, glow: true });
-  const b = ss(ramp(t, LE[7] + .1, .7));
-  g.save(); g.globalAlpha = b; g.fillStyle = C.rule; g.fillRect(540 - 100 * b, 1050, 200 * b, 3); g.restore();
-  text(g, '《纳瓦尔宝典》', 540, 1140, { size: 58, font: SERIF, weight: 'bold', color: C.white, alpha: b });
-  text(g, '书籍解读 · 3Blue1Brown 风格', 540, 1220, { size: 34, color: C.neonCyanCore, alpha: b, glow: true });
+async function renderAll() {
+  const outDir = 'out';
+  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+
+  const finalVideo = 'out/naval_ep01_3b1b_21lines.mp4';
+  console.log(`🎬 Rendering ${NFRAMES} frames (${DUR}s at ${FPS}fps) in 3B1B vertical style...`);
+
+  // Direct rawvideo pipe to ffmpeg for instant, high-speed encoding
+  const ffmpeg = spawn('ffmpeg', [
+    '-y',
+    '-f', 'rawvideo',
+    '-pix_fmt', 'rgba',
+    '-s', `${W}x${H}`,
+    '-r', String(FPS),
+    '-i', '-',
+    '-i', 'build/master.wav',
+    '-c:v', 'libx264',
+    '-pix_fmt', 'yuv420p',
+    '-preset', 'veryfast',
+    '-c:a', 'aac',
+    '-b:a', '192k',
+    '-ar', '48000',
+    '-movflags', '+faststart',
+    finalVideo
+  ]);
+
+  ffmpeg.stderr.on('data', data => {
+    const s = data.toString();
+    if (s.includes('fps=') || s.includes('frame=')) {
+      process.stdout.write(`\r${s.trim().slice(-60)}`);
+    }
+  });
+
+  const canvas = createCanvas(W, H);
+  const g = canvas.getContext('2d');
+
+  for (let f = 0; f < NFRAMES; f++) {
+    const t = f / FPS;
+    // 1. Draw static background
+    g.drawImage(BG, 0, 0);
+
+    // 2. Draw scene visuals for this timestamp
+    drawScene(g, t);
+
+    // 3. Draw subtitles
+    drawSubtitles(g, t);
+
+    // 4. Stream raw RGBA frame directly to ffmpeg pipe (zero compression overhead)
+    const imgData = g.getImageData(0, 0, W, H).data;
+    const buf = Buffer.from(imgData.buffer, imgData.byteOffset, imgData.byteLength);
+    const ok = ffmpeg.stdin.write(buf);
+    if (!ok) {
+      await new Promise(r => ffmpeg.stdin.once('drain', r));
+    }
+
+    if (f % 300 === 0 || f === NFRAMES - 1) {
+      const pct = ((f / NFRAMES) * 100).toFixed(1);
+      console.log(`Frame ${f}/${NFRAMES} (${pct}%) t=${t.toFixed(1)}s`);
+    }
+  }
+
+  ffmpeg.stdin.end();
+
+  await new Promise((resolve, reject) => {
+    ffmpeg.on('close', code => {
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpeg exited with code ${code}`));
+    });
+  });
+
+  console.log(`\n🎉 Rendering complete! Final video saved to ${finalVideo}`);
 }
 
-// Subtitles (Neon Glow)
-const SUBS = []; VO.forEach((l, i) => {
-  const pages = l.show.split('|'), n = pages.reduce((s, p) => s + p.length, 0);
-  let t0 = LS[i]; const span = (LE[i] + .3) - LS[i];
-  pages.forEach((p, k) => { const d = span * p.length / n; SUBS.push({ s: p, a: t0, b: k === pages.length - 1 ? LE[i] + .3 : t0 + d }); t0 += d; });
+renderAll().catch(err => {
+  console.error('Rendering error:', err);
+  process.exit(1);
 });
-function drawSubs(g, t) {
-  for (const s of SUBS) {
-    const a = win(t, s.a, s.b, .12, .15); if (a <= 0) continue;
-    // Glassmorphic subtitle background pill
-    g.save(); g.globalAlpha = a;
-    g.font = `bold 44px ${SANS}`; const w = g.measureText(s.s).width + 60;
-    g.fillStyle = 'rgba(12, 17, 28, 0.85)'; g.strokeStyle = 'rgba(255, 255, 255, 0.12)'; g.lineWidth = 2;
-    rrect(g, 540 - w / 2, 1680 - 46, w, 92, 46); g.fill(); g.stroke();
-    text(g, s.s, 540, 1680 + 2, { size: 44, color: C.white, weight: 'bold' });
-    g.restore();
-  }
-}
-
-// Screen trauma shake on collision
-function getShake(t) {
-  if (t < K.hit || t > K.hit + 0.6) return [0, 0];
-  const dt = t - K.hit;
-  const decay = Math.exp(-dt * 9);
-  const dx = decay * 18 * Math.sin(dt * 75);
-  const dy = decay * 14 * Math.cos(dt * 90);
-  return [dx, dy];
-}
-
-// Master frame(t)
-export function frame(g, t) {
-  g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1;
-  // Apply camera shake if any
-  const [sx, sy] = getShake(t);
-  g.translate(sx, sy);
-
-  g.drawImage(BG, -20, -20, W + 40, H + 40);
-  // Header
-  text(g, '书籍解读｜《纳瓦尔宝典》', 540, 140, { size: 32, color: C.textMute, align: 'center', alpha: ss(ramp(t, .1, .8)), weight: 'bold' });
-  drawGraph(g, t, graphAlpha(t));
-  sceneHook(g, t);
-  drawFormula(g, t);
-  sceneKnowledge(g, t);
-  sceneLeverage(g, t);
-  if (t > B[2] && t < B[3] + .5) { LAYER_G.clearRect(0, 0, W, H); sceneQuote(LAYER_G, t); g.drawImage(LAYER, 0, 0); }
-  sceneEnd(g, t);
-  drawSubs(g, t);
-  // Bottom Glowing Progress Bar
-  g.save();
-  g.fillStyle = C.neonRed; g.shadowColor = C.neonRed; g.shadowBlur = 12;
-  g.fillRect(0, H - 8, W * t / DUR, 8);
-  g.restore();
-}
-const LAYER = createCanvas(W, H), LAYER_G = LAYER.getContext('2d');
-
-// CLI
-const argv = process.argv.slice(2), opt = n => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
-if (argv.includes('--still')) {
-  const ts = opt('--still').split(',').map(Number), out = argv[argv.indexOf('--still') + 2];
-  const c = createCanvas(W, H), g = c.getContext('2d');
-  for (const t of ts) { frame(g, t); const p = ts.length > 1 ? out.replace('.png', `_${t.toFixed(1)}.png`) : out; fs.writeFileSync(p, c.toBuffer('image/png')); console.log(p); }
-} else if (opt('--out')) {
-  const start = +(opt('--start') ?? 0), n = +(opt('--frames') ?? NFRAMES - start);
-  const c = createCanvas(W, H), g = c.getContext('2d');
-  const ff = spawn('ffmpeg', ['-y', '-v', 'error', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${W}x${H}`, '-r', `${FPS}`, '-i', '-',
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-preset', 'medium', '-movflags', '+faststart', '-an', opt('--out')], { stdio: ['pipe', 'inherit', 'inherit'] });
-  const t0 = Date.now();
-  for (let i = start; i < start + n; i++) {
-    frame(g, i / FPS);
-    const buf = Buffer.from(g.getImageData(0, 0, W, H).data.buffer);
-    if (!ff.stdin.write(buf)) await new Promise(r => ff.stdin.once('drain', r));
-    if ((i - start) % 150 === 0) console.log(`frame ${i} ${((Date.now() - t0) / (i - start + 1)).toFixed(0)} ms/f`);
-  }
-  ff.stdin.end(); await new Promise(r => ff.on('close', r)); console.log('done', opt('--out'));
-}
